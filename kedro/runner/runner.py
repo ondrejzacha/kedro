@@ -198,12 +198,20 @@ class AbstractRunner(ABC):
 
         postfix = ""
         if done_nodes:
-            # Find which of the remaining nodes would need to run first (in topo sort)
-            remaining_initial_nodes = _find_initial_nodes(pipeline, remaining_nodes)
+            node_names = (n.name for n in remaining_nodes)
+            resume_p = pipeline.only_nodes(*node_names)
+            remaining_initial_nodes = set(
+                resume_p.only_nodes_with_inputs(*resume_p.inputs()).nodes
+            )
 
             # Find the nearest persistent ancestors of these nodes
             persistent_ancestors = _find_persistent_ancestors(
                 pipeline, remaining_initial_nodes, catalog
+            )
+
+            # Find which of the remaining nodes would need to run first (in topo sort)
+            persistent_ancestors = _find_initial_nodes(
+                pipeline, remaining_initial_nodes | persistent_ancestors
             )
 
             start_node_names = sorted(n.name for n in persistent_ancestors)
@@ -214,14 +222,22 @@ class AbstractRunner(ABC):
                 "No nodes ran. Repeat the previous command to attempt a new run."
             )
         else:
+            done_node_names = ",".join(n.name for n in done_nodes)
             self._logger.warning(
-                "There are %d nodes that have not run.\n"
+                f"There are {len(remaining_nodes)} nodes that have not run.\n"
                 "You can resume the pipeline run from the nearest nodes with "
                 "persisted inputs by adding the following "
-                "argument to your previous command:\n%s",
-                len(remaining_nodes),
-                postfix,
+                f"argument to your previous command: {postfix} \n\n"
+                f"done nodes: {done_node_names}"
             )
+            # raise PipelineFail("oops", done_nodes=done_nodes, start_nodes=persistent_ancestors)
+
+
+class PipelineFail(RuntimeError):
+    def __init__(self, msg, done_nodes, start_nodes):
+        super().__init__(msg)
+        self.done_nodes = done_nodes
+        self.start_nodes = start_nodes
 
 
 def _find_persistent_ancestors(
@@ -263,6 +279,30 @@ def _find_persistent_ancestors(
     return initial_nodes_to_run
 
 
+def has_persistent_inputs(node: Node, catalog: DataCatalog) -> bool:
+    impersistent_inputs = _enumerate_impersistent_inputs(node, catalog)
+    return not impersistent_inputs
+
+
+def has_persistent_outputs(node: Node, catalog: DataCatalog) -> bool:
+    impersistent_outputs = _enumerate_impersistent_outputs(node, catalog)
+    return not impersistent_outputs
+
+
+def _enumerate_impersistent_outputs(node: Node, catalog: DataCatalog) -> set[str]:
+    # We use _data_sets because they pertain parameter name format
+    catalog_datasets = catalog._datasets
+    missing_inputs: set[str] = set()
+    for node_input in node.outputs:
+        # Important difference vs. Kedro approach
+        if node_input.startswith("params:"):
+            continue
+        if isinstance(catalog_datasets[node_input], MemoryDataset):
+            missing_inputs.add(node_input)
+
+    return missing_inputs
+
+
 def _enumerate_impersistent_inputs(node: Node, catalog: DataCatalog) -> set[str]:
     """Enumerate impersistent input Datasets of a ``Node``.
 
@@ -281,7 +321,9 @@ def _enumerate_impersistent_inputs(node: Node, catalog: DataCatalog) -> set[str]
         # Important difference vs. Kedro approach
         if node_input.startswith("params:"):
             continue
-        if isinstance(catalog_datasets[node_input], MemoryDataset):
+        if node_input not in catalog_datasets or isinstance(
+            catalog_datasets[node_input], MemoryDataset
+        ):
             missing_inputs.add(node_input)
 
     return missing_inputs
