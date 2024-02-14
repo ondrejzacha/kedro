@@ -198,22 +198,11 @@ class AbstractRunner(ABC):
 
         postfix = ""
         if done_nodes:
-            node_names = (n.name for n in remaining_nodes)
-            resume_p = pipeline.only_nodes(*node_names)
-            remaining_initial_nodes = set(
-                resume_p.only_nodes_with_inputs(*resume_p.inputs()).nodes
+            persistent_ancestors = find_nodes_to_resume_from(
+                pipeline=pipeline,
+                unfinished_nodes=remaining_nodes,
+                catalog=catalog,
             )
-
-            # Find the nearest persistent ancestors of these nodes
-            persistent_ancestors = _find_persistent_ancestors(
-                pipeline, remaining_initial_nodes, catalog
-            )
-
-            # Find which of the remaining nodes would need to run first (in topo sort)
-            persistent_ancestors = _find_initial_nodes(
-                pipeline, remaining_initial_nodes | persistent_ancestors
-            )
-
             start_node_names = sorted(n.name for n in persistent_ancestors)
             postfix += f"  --from-nodes \"{','.join(start_node_names)}\""
 
@@ -230,9 +219,27 @@ class AbstractRunner(ABC):
                 f"argument to your previous command: {postfix} \n\n"
                 f"done nodes: {done_node_names}"
             )
-            # raise PipelineFail("oops", done_nodes=done_nodes, start_nodes=persistent_ancestors)
+            # raise PipelineFail(
+            #     "oops", done_nodes=done_nodes, start_nodes=persistent_ancestors
+            # )
 
 
+def find_nodes_to_resume_from(
+    pipeline: Pipeline, unfinished_nodes: Collection[Node], catalog: DataCatalog
+) -> set[Node]:
+    all_nodes_that_need_to_run = _find_all_required_nodes(
+        pipeline, unfinished_nodes, catalog
+    )
+
+    # Find which of the remaining nodes would need to run first (in topo sort)
+    persistent_ancestors = _find_initial_node_group(
+        pipeline, all_nodes_that_need_to_run
+    )
+
+    return persistent_ancestors
+
+
+# XXX
 class PipelineFail(RuntimeError):
     def __init__(self, msg, done_nodes, start_nodes):
         super().__init__(msg)
@@ -240,8 +247,8 @@ class PipelineFail(RuntimeError):
         self.start_nodes = start_nodes
 
 
-def _find_persistent_ancestors(
-    pipeline: Pipeline, children: Iterable[Node], catalog: DataCatalog
+def _find_all_required_nodes(
+    pipeline: Pipeline, unfinished_nodes: Iterable[Node], catalog: DataCatalog
 ) -> set[Node]:
     """Breadth-first search approach to finding the complete set of
     persistent ancestors of an iterable of ``Node``s. Persistent
@@ -257,16 +264,17 @@ def _find_persistent_ancestors(
         ``Node``s.
 
     """
-    initial_nodes_to_run: set[Node] = set()
+    nodes_to_run = set(unfinished_nodes)
+    initial_nodes = _nodes_with_external_inputs(pipeline, unfinished_nodes)
 
-    queue, visited = deque(children), set(children)
+    queue, visited = deque(initial_nodes), set(initial_nodes)
     while queue:
         current_node = queue.popleft()
         impersistent_inputs = _enumerate_impersistent_inputs(current_node, catalog)
 
         # If all inputs are persistent, we can run this node as is
         if not impersistent_inputs:
-            initial_nodes_to_run.add(current_node)
+            nodes_to_run.add(current_node)
             continue
 
         # Otherwise, look for the nodes that produce impersistent inputs
@@ -276,14 +284,26 @@ def _find_persistent_ancestors(
             visited.add(node)
             queue.append(node)
 
-    return initial_nodes_to_run
+    return nodes_to_run
 
 
+def _nodes_with_external_inputs(
+    pipeline: Pipeline, nodes_of_interest: Iterable[Node]
+) -> set[Node]:
+    p_nodes_of_interest = pipeline.only_nodes(*(n.name for n in nodes_of_interest))
+    p_nodes_with_external_inputs = p_nodes_of_interest.only_nodes_with_inputs(
+        *p_nodes_of_interest.inputs()
+    )
+    return set(p_nodes_with_external_inputs.nodes)
+
+
+# XXX
 def has_persistent_inputs(node: Node, catalog: DataCatalog) -> bool:
     impersistent_inputs = _enumerate_impersistent_inputs(node, catalog)
     return not impersistent_inputs
 
 
+# XXX
 def has_persistent_outputs(node: Node, catalog: DataCatalog) -> bool:
     impersistent_outputs = _enumerate_impersistent_outputs(node, catalog)
     return not impersistent_outputs
@@ -347,9 +367,12 @@ def _enumerate_nodes_with_outputs(
     return parent_pipeline.nodes
 
 
-def _find_initial_nodes(pipeline: Pipeline, nodes: Iterable[Node]) -> list[Node]:
+def _find_initial_node_group(pipeline: Pipeline, nodes: Iterable[Node]) -> list[Node]:
     """Given a collection of ``Node``s in a ``Pipeline``,
     find the initial group of ``Node``s to be run (in topological order).
+
+    This can be used to define a sub-pipeline with the smallest possible
+    set of nodes to pass to --from-nodes.
 
     Args:
         pipeline: the ``Pipeline`` to search for initial ``Node``s in.
@@ -362,7 +385,7 @@ def _find_initial_nodes(pipeline: Pipeline, nodes: Iterable[Node]) -> list[Node]
     node_names = set(n.name for n in nodes)
     sub_pipeline = pipeline.only_nodes(*node_names)
     initial_nodes = sub_pipeline.grouped_nodes[0]
-    return initial_nodes
+    return set(initial_nodes)
 
 
 def run_node(
