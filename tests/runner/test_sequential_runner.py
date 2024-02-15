@@ -17,6 +17,7 @@ from kedro.io import (
 from kedro.pipeline import node
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 from kedro.runner import SequentialRunner
+from kedro.runner.runner import find_nodes_to_resume_from
 from tests.runner.conftest import exception_fn, identity, sink, source
 
 
@@ -353,3 +354,61 @@ class TestMemoryDatasetBehaviour:
         assert (
             "RegularOutput" not in output
         )  # This output is registered in DataCatalog and so should not be in free outputs
+
+
+class TestResumeLogicBehaviour:
+    @pytest.mark.parametrize(
+        "remaining_node_names,expected_result",
+        [
+            (["node3", "node4", "node2"], {"node2", "node1"}),
+            (["node3", "node4"], {"node2", "node1"}),
+            (["node4"], {"node2", "node1"}),
+            ([], set()),
+        ],
+    )
+    def test_find_nodes_to_resume_from(
+        self,
+        pipeline_asymmetric,
+        persistent_dataset_catalog,
+        remaining_node_names,
+        expected_result,
+    ):
+        """
+        ...
+        """
+        remaining_nodes = pipeline_asymmetric.only_nodes(*remaining_node_names).nodes
+        result_nodes = find_nodes_to_resume_from(
+            pipeline_asymmetric, remaining_nodes, persistent_dataset_catalog
+        )
+        result_node_names = {n.name for n in result_nodes}
+        assert expected_result == result_node_names
+
+    @pytest.mark.parametrize(
+        "remaining_node_names",
+        [
+            ["node3", "node4", "node2"],
+            ["node3", "node4"],
+            ["node4"],
+            [],
+        ],
+    )
+    def test_find_nodes_to_resume_from_persistent(
+        self,
+        pipeline_asymmetric_persistent_datasets,
+        persistent_dataset_catalog,
+        remaining_node_names,
+    ):
+        """
+        ...
+        """
+        remaining_nodes = pipeline_asymmetric_persistent_datasets.only_nodes(
+            *remaining_node_names
+        ).nodes
+        result_nodes = find_nodes_to_resume_from(
+            pipeline_asymmetric_persistent_datasets,
+            remaining_nodes,
+            persistent_dataset_catalog,
+        )
+        result_node_names = {n.name for n in result_nodes}
+        # Superset due to "compression" via initial node group
+        assert set(remaining_node_names).issuperset(result_node_names)

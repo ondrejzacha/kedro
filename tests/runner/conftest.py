@@ -154,7 +154,17 @@ def unfinished_outputs_pipeline():
 
 @pytest.fixture
 def two_branches_crossed_pipeline():
-    """A ``Pipeline`` with an X-shape (two branches with one common node)"""
+    r"""A ``Pipeline`` with an X-shape (two branches with one common node):
+
+    (node1_A)   (node1_B)
+           \     /
+           (node2)
+           /     \
+      (node3_A) (node3_B)
+         /         \
+    (node4_A)     (node4_B)
+
+    """
     return pipeline(
         [
             node(identity, "ds0_A", "ds1_A", name="node1_A"),
@@ -210,5 +220,29 @@ def pipeline_with_memory_datasets():
         [
             node(func=identity, inputs="Input1", outputs="MemOutput1", name="node1"),
             node(func=identity, inputs="Input2", outputs="MemOutput2", name="node2"),
+        ]
+    )
+
+
+@pytest.fixture
+def pipeline_asymmetric():
+    return pipeline(
+        [
+            node(first_arg, ["ds0_A"], ["_ds1"], name="node1"),
+            node(first_arg, ["ds0_B"], ["_ds2"], name="node2"),
+            node(first_arg, ["_ds1"], ["_ds3"], name="node3"),
+            node(first_arg, ["_ds2", "_ds3"], ["_ds4"], name="node4"),
+        ]
+    )
+
+
+@pytest.fixture
+def pipeline_asymmetric_persistent_datasets():
+    return pipeline(
+        [
+            node(first_arg, ["ds0_A"], ["ds2_A"], name="node1"),
+            node(first_arg, ["ds0_B"], ["ds2_B"], name="node2"),
+            node(first_arg, ["ds2_A"], ["dsX"], name="node3"),
+            node(first_arg, ["ds2_B", "dsX"], ["_ds4"], name="node4"),
         ]
     )
