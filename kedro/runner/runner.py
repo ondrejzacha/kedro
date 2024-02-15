@@ -211,13 +211,11 @@ class AbstractRunner(ABC):
                 "No nodes ran. Repeat the previous command to attempt a new run."
             )
         else:
-            done_node_names = ",".join(n.name for n in done_nodes)
             self._logger.warning(
                 f"There are {len(remaining_nodes)} nodes that have not run.\n"
                 "You can resume the pipeline run from the nearest nodes with "
                 "persisted inputs by adding the following "
-                f"argument to your previous command: {postfix} \n\n"
-                f"done nodes: {done_node_names}"
+                f"argument to your previous command: {postfix}"
             )
             # raise PipelineFail(
             #     "oops", done_nodes=done_nodes, start_nodes=persistent_ancestors
@@ -227,6 +225,10 @@ class AbstractRunner(ABC):
 def find_nodes_to_resume_from(
     pipeline: Pipeline, unfinished_nodes: Collection[Node], catalog: DataCatalog
 ) -> set[Node]:
+    # TODO: what if unfinished_nodes is empty?
+    # if not unfinished_nodes:
+    #     return set()
+
     all_nodes_that_need_to_run = _find_all_required_nodes(
         pipeline, unfinished_nodes, catalog
     )
@@ -297,32 +299,6 @@ def _nodes_with_external_inputs(
     return set(p_nodes_with_external_inputs.nodes)
 
 
-# XXX
-def has_persistent_inputs(node: Node, catalog: DataCatalog) -> bool:
-    impersistent_inputs = _enumerate_impersistent_inputs(node, catalog)
-    return not impersistent_inputs
-
-
-# XXX
-def has_persistent_outputs(node: Node, catalog: DataCatalog) -> bool:
-    impersistent_outputs = _enumerate_impersistent_outputs(node, catalog)
-    return not impersistent_outputs
-
-
-def _enumerate_impersistent_outputs(node: Node, catalog: DataCatalog) -> set[str]:
-    # We use _data_sets because they pertain parameter name format
-    catalog_datasets = catalog._datasets
-    missing_inputs: set[str] = set()
-    for node_input in node.outputs:
-        # Important difference vs. Kedro approach
-        if node_input.startswith("params:"):
-            continue
-        if isinstance(catalog_datasets[node_input], MemoryDataset):
-            missing_inputs.add(node_input)
-
-    return missing_inputs
-
-
 def _enumerate_impersistent_inputs(node: Node, catalog: DataCatalog) -> set[str]:
     """Enumerate impersistent input Datasets of a ``Node``.
 
@@ -334,11 +310,10 @@ def _enumerate_impersistent_inputs(node: Node, catalog: DataCatalog) -> set[str]
         Set of names of impersistent inputs of given ``Node``.
 
     """
-    # We use _data_sets because they pertain parameter name format
+    # We use _datasets because they pertain parameter name format
     catalog_datasets = catalog._datasets
     missing_inputs: set[str] = set()
     for node_input in node.inputs:
-        # Important difference vs. Kedro approach
         if node_input.startswith("params:"):
             continue
         if node_input not in catalog_datasets or isinstance(
@@ -383,6 +358,9 @@ def _find_initial_node_group(pipeline: Pipeline, nodes: Iterable[Node]) -> list[
 
     """
     node_names = set(n.name for n in nodes)
+    if len(node_names) == 0:
+        # TODO: or raise?
+        return set()
     sub_pipeline = pipeline.only_nodes(*node_names)
     initial_nodes = sub_pipeline.grouped_nodes[0]
     return set(initial_nodes)
@@ -593,3 +571,82 @@ def _run_node_async(
                 dataset_name=name, data=data, node=node
             )
     return node
+
+
+def find_nodes_to_resume_from_old(
+    pipeline: Pipeline, unfinished_nodes: Collection[Node], catalog: DataCatalog
+) -> set[Node]:
+    # Find which of the remaining nodes would need to run first (in topo sort)
+    remaining_initial_nodes = _find_initial_node_group(pipeline, unfinished_nodes)
+
+    # Find the nearest persistent ancestors of these nodes
+    persistent_ancestors = _find_persistent_ancestors(
+        pipeline, remaining_initial_nodes, catalog
+    )
+    return set(persistent_ancestors)
+
+
+def _find_persistent_ancestors(
+    pipeline: Pipeline, children: Iterable[Node], catalog: DataCatalog
+) -> set[Node]:
+    """Breadth-first search approach to finding the complete set of
+    persistent ancestors of an iterable of ``Node``s. Persistent
+    ancestors exclusively have persisted ``Dataset``s or parameters as inputs.
+
+    Args:
+        pipeline: the ``Pipeline`` to find ancestors in.
+        children: the iterable containing ``Node``s to find ancestors of.
+        catalog: the ``DataCatalog`` of the run.
+
+    Returns:
+        A set containing first persistent ancestors of the given
+        ``Node``s.
+
+    """
+    initial_nodes_to_run: set[Node] = set()
+
+    queue, visited = deque(children), set(children)
+    while queue:
+        current_node = queue.popleft()
+        impersistent_inputs = _enumerate_impersistent_inputs(current_node, catalog)
+
+        # If all inputs are persistent, we can run this node as is
+        if not impersistent_inputs:
+            initial_nodes_to_run.add(current_node)
+            continue
+
+        # Otherwise, look for the nodes that produce impersistent inputs
+        for node in _enumerate_nodes_with_outputs(pipeline, impersistent_inputs):
+            if node in visited:
+                continue
+            visited.add(node)
+            queue.append(node)
+
+    return initial_nodes_to_run
+
+
+# XXX
+def has_persistent_inputs(node: Node, catalog: DataCatalog) -> bool:
+    impersistent_inputs = _enumerate_impersistent_inputs(node, catalog)
+    return not impersistent_inputs
+
+
+# XXX
+def has_persistent_outputs(node: Node, catalog: DataCatalog) -> bool:
+    impersistent_outputs = _enumerate_impersistent_outputs(node, catalog)
+    return not impersistent_outputs
+
+
+# XXX
+def _enumerate_impersistent_outputs(node: Node, catalog: DataCatalog) -> set[str]:
+    # We use _data_sets because they pertain parameter name format
+    catalog_datasets = catalog._datasets
+    missing_inputs: set[str] = set()
+    for node_input in node.outputs:
+        # Important difference vs. Kedro approach
+        if node_input.startswith("params:"):
+            continue
+        if isinstance(catalog_datasets[node_input], MemoryDataset):
+            missing_inputs.add(node_input)
+
+    return missing_inputs
