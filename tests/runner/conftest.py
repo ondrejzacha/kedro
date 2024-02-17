@@ -247,3 +247,14 @@ def pipeline_asymmetric_persistent_datasets():
             node(first_arg, ["ds2_B", "dsX"], ["_ds4"], name="node4"),
         ]
     )
+
+
+@pytest.fixture
+def pipeline_triangular():
+    return pipeline(
+        [
+            node(first_arg, ["ds0_A"], ["_ds1_A"], name="node1"),
+            node(first_arg, ["_ds1_A"], ["ds2_A"], name="node2"),
+            node(first_arg, ["ds2_A", "_ds1_A"], ["_ds3_A"], name="node3"),
+        ]
+    )

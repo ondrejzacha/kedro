@@ -17,7 +17,11 @@ from kedro.io import (
 from kedro.pipeline import node
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 from kedro.runner import SequentialRunner
-from kedro.runner.runner import find_initial_node_group, find_nodes_to_resume_from
+from kedro.runner.runner import (
+    _find_all_required_nodes,
+    find_initial_node_group,
+    find_nodes_to_resume_from,
+)
 from tests.runner.conftest import exception_fn, identity, sink, source
 
 
@@ -453,3 +457,18 @@ class TestResumeLogicBehaviour:
         )
         # Superset due to "compression" via initial node group
         assert set(remaining_nodes).issuperset(result_nodes)
+
+    def test_triangular_pipeline(
+        self,
+        pipeline_triangular,
+        persistent_dataset_catalog,
+    ):
+        """
+        Test that for nodes in result pipeline, no start nodes
+        """
+        remaining_nodes = pipeline_triangular.only_nodes("node3").nodes
+        result_nodes = _find_all_required_nodes(
+            pipeline_triangular, remaining_nodes, persistent_dataset_catalog
+        )
+        result_node_names = {n.name for n in result_nodes}
+        assert {"node1", "node2", "node3"} == result_node_names

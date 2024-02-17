@@ -198,7 +198,7 @@ class AbstractRunner(ABC):
 
         postfix = ""
         if done_nodes:
-            persistent_ancestors = find_nodes_to_resume_from(
+            persistent_ancestors = find_nodes_to_resume_from_main(
                 pipeline=pipeline,
                 unfinished_nodes=remaining_nodes,
                 catalog=catalog,
@@ -267,7 +267,10 @@ def _find_all_required_nodes(
             visited.add(node)
             queue.append(node)
 
-    return nodes_to_run
+    # Make sure no downstream tasks are skipped
+    nodes_to_run = pipeline.from_nodes(*(n.name for n in nodes_to_run)).nodes
+
+    return set(nodes_to_run)
 
 
 def _nodes_with_external_inputs(
@@ -641,3 +644,73 @@ class PipelineFail(RuntimeError):
         super().__init__(msg)
         self.done_nodes = done_nodes
         self.start_nodes = start_nodes
+
+
+# XXX
+def find_nodes_to_resume_from_main(pipeline, unfinished_nodes, catalog):
+    node_names = (n.name for n in unfinished_nodes)
+    resume_p = pipeline.only_nodes(*node_names)
+    start_p = resume_p.only_nodes_with_inputs(*resume_p.inputs())
+
+    # find the nearest persistent ancestors of the nodes in start_p
+    start_p_persistent_ancestors = _find_persistent_ancestors_main(
+        pipeline, start_p.nodes, catalog
+    )
+    return start_p_persistent_ancestors
+
+
+# XXX
+def _find_persistent_ancestors_main(
+    pipeline: Pipeline, children: Iterable[Node], catalog: DataCatalog
+) -> set[Node]:
+    """Breadth-first search approach to finding the complete set of
+    persistent ancestors of an iterable of ``Node``s. Persistent
+    ancestors exclusively have persisted ``Dataset``s as inputs.
+    Args:
+        pipeline: the ``Pipeline`` to find ancestors in.
+        @@ -242,54 +252,99 @@ def _find_persistent_ancestors(
+        ``Node``s.
+    """
+    ancestor_nodes_to_run = set()
+    queue, visited = deque(children), set(children)
+    while queue:
+        current_node = queue.popleft()
+        if _has_persistent_inputs_main(current_node, catalog):
+            ancestor_nodes_to_run.add(current_node)
+            continue
+        for parent in _enumerate_parents_main(pipeline, current_node):
+            if parent in visited:
+                continue
+            visited.add(parent)
+            queue.append(parent)
+    return ancestor_nodes_to_run
+
+
+# XXX
+def _enumerate_parents_main(pipeline: Pipeline, child: Node) -> list[Node]:
+    """For a given ``Node``, returns a list containing the direct parents
+    of that ``Node`` in the given ``Pipeline``.
+    Args:
+        pipeline: the ``Pipeline`` to search for direct parents in.
+        child: the ``Node`` to find parents of.
+    Returns:
+        A list of all ``Node``s that are direct parents of ``child``.
+    """
+    parent_pipeline = pipeline.only_nodes_with_outputs(*child.inputs)
+    return parent_pipeline.nodes
+
+
+def _has_persistent_inputs_main(node: Node, catalog: DataCatalog) -> bool:
+    """Check if a ``Node`` exclusively has persisted Datasets as inputs.
+    If at least one input is a ``MemoryDataset``, return False.
+    Args:
+        node: the ``Node`` to check the inputs of.
+        catalog: the ``DataCatalog`` of the run.
+    Returns:
+        True if the ``Node`` being checked exclusively has inputs that
+        are not ``MemoryDataset``, else False.
+    """
+    for node_input in node.inputs:
+        if isinstance(catalog._datasets[node_input], MemoryDataset):
+            return False
+    return True
