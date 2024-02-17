@@ -225,10 +225,6 @@ class AbstractRunner(ABC):
 def find_nodes_to_resume_from(
     pipeline: Pipeline, unfinished_nodes: Collection[Node], catalog: DataCatalog
 ) -> set[Node]:
-    # TODO: what if unfinished_nodes is empty?
-    # if not unfinished_nodes:
-    #     return set()
-
     all_nodes_that_need_to_run = _find_all_required_nodes(
         pipeline, unfinished_nodes, catalog
     )
@@ -262,14 +258,9 @@ def _find_all_required_nodes(
     queue, visited = deque(initial_nodes), set(initial_nodes)
     while queue:
         current_node = queue.popleft()
+        nodes_to_run.add(current_node)
         impersistent_inputs = _enumerate_impersistent_inputs(current_node, catalog)
-
-        # If all inputs are persistent, we can run this node as is
-        if not impersistent_inputs:
-            nodes_to_run.add(current_node)
-            continue
-
-        # Otherwise, look for the nodes that produce impersistent inputs
+        # Look for the nodes that produce impersistent inputs (if they exist)
         for node in _enumerate_nodes_with_outputs(pipeline, impersistent_inputs):
             if node in visited:
                 continue

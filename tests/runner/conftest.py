@@ -215,6 +215,7 @@ def two_branches_crossed_pipeline_variable_inputs(request):
     )
 
 
+@pytest.fixture
 def pipeline_with_memory_datasets():
     return pipeline(
         [
