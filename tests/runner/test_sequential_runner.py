@@ -17,7 +17,7 @@ from kedro.io import (
 from kedro.pipeline import node
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 from kedro.runner import SequentialRunner
-from kedro.runner.runner import find_nodes_to_resume_from
+from kedro.runner.runner import find_initial_node_group, find_nodes_to_resume_from
 from tests.runner.conftest import exception_fn, identity, sink, source
 
 
@@ -366,7 +366,7 @@ class TestResumeLogicBehaviour:
             ([], set()),
         ],
     )
-    def test_find_nodes_to_resume_from(
+    def test_simple_pipeline(
         self,
         pipeline_asymmetric,
         persistent_dataset_catalog,
@@ -392,7 +392,7 @@ class TestResumeLogicBehaviour:
             [],
         ],
     )
-    def test_find_nodes_to_resume_from_persistent(
+    def test_pipeline_with_persistent_datasets(
         self,
         pipeline_asymmetric_persistent_datasets,
         persistent_dataset_catalog,
@@ -412,3 +412,44 @@ class TestResumeLogicBehaviour:
         result_node_names = {n.name for n in result_nodes}
         # Superset due to "compression" via initial node group
         assert set(remaining_node_names).issuperset(result_node_names)
+
+    def test_empty_pipeline(self):
+        """
+        ...
+        """
+        test_pipeline = modular_pipeline([])
+        result_nodes = find_nodes_to_resume_from(test_pipeline, [], DataCatalog())
+        assert result_nodes == set()
+
+    def test_empty_pipeline2(self):
+        """
+        ...
+        """
+        test_pipeline = modular_pipeline([])
+        result_nodes = find_nodes_to_resume_from(test_pipeline, [], DataCatalog())
+        assert result_nodes == set()
+
+    @pytest.mark.parametrize(
+        "remaining_node_names",
+        [
+            ["node3", "node4", "node2"],
+            ["node3", "node4"],
+            ["node4"],
+            [],
+        ],
+    )
+    def test_initial_node_group_always_within(
+        self,
+        pipeline_asymmetric,
+        remaining_node_names,
+    ):
+        """
+        ...
+        """
+        remaining_nodes = pipeline_asymmetric.only_nodes(*remaining_node_names).nodes
+        result_nodes = find_initial_node_group(
+            pipeline_asymmetric,
+            remaining_nodes,
+        )
+        # Superset due to "compression" via initial node group
+        assert set(remaining_nodes).issuperset(result_nodes)

@@ -234,19 +234,9 @@ def find_nodes_to_resume_from(
     )
 
     # Find which of the remaining nodes would need to run first (in topo sort)
-    persistent_ancestors = _find_initial_node_group(
-        pipeline, all_nodes_that_need_to_run
-    )
+    persistent_ancestors = find_initial_node_group(pipeline, all_nodes_that_need_to_run)
 
     return persistent_ancestors
-
-
-# XXX
-class PipelineFail(RuntimeError):
-    def __init__(self, msg, done_nodes, start_nodes):
-        super().__init__(msg)
-        self.done_nodes = done_nodes
-        self.start_nodes = start_nodes
 
 
 def _find_all_required_nodes(
@@ -342,7 +332,7 @@ def _enumerate_nodes_with_outputs(
     return parent_pipeline.nodes
 
 
-def _find_initial_node_group(pipeline: Pipeline, nodes: Iterable[Node]) -> list[Node]:
+def find_initial_node_group(pipeline: Pipeline, nodes: Iterable[Node]) -> list[Node]:
     """Given a collection of ``Node``s in a ``Pipeline``,
     find the initial group of ``Node``s to be run (in topological order).
 
@@ -573,11 +563,12 @@ def _run_node_async(
     return node
 
 
+# XXX
 def find_nodes_to_resume_from_old(
     pipeline: Pipeline, unfinished_nodes: Collection[Node], catalog: DataCatalog
 ) -> set[Node]:
     # Find which of the remaining nodes would need to run first (in topo sort)
-    remaining_initial_nodes = _find_initial_node_group(pipeline, unfinished_nodes)
+    remaining_initial_nodes = find_initial_node_group(pipeline, unfinished_nodes)
 
     # Find the nearest persistent ancestors of these nodes
     persistent_ancestors = _find_persistent_ancestors(
@@ -586,6 +577,7 @@ def find_nodes_to_resume_from_old(
     return set(persistent_ancestors)
 
 
+# XXX
 def _find_persistent_ancestors(
     pipeline: Pipeline, children: Iterable[Node], catalog: DataCatalog
 ) -> set[Node]:
@@ -650,3 +642,11 @@ def _enumerate_impersistent_outputs(node: Node, catalog: DataCatalog) -> set[str
             missing_inputs.add(node_input)
 
     return missing_inputs
+
+
+# XXX
+class PipelineFail(RuntimeError):
+    def __init__(self, msg, done_nodes, start_nodes):
+        super().__init__(msg)
+        self.done_nodes = done_nodes
+        self.start_nodes = start_nodes
