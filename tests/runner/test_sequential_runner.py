@@ -425,14 +425,6 @@ class TestResumeLogicBehaviour:
         result_nodes = find_nodes_to_resume_from(test_pipeline, [], DataCatalog())
         assert result_nodes == set()
 
-    def test_empty_pipeline2(self):
-        """
-        ...
-        """
-        test_pipeline = modular_pipeline([])
-        result_nodes = find_nodes_to_resume_from(test_pipeline, [], DataCatalog())
-        assert result_nodes == set()
-
     @pytest.mark.parametrize(
         "remaining_node_names",
         [
@@ -472,3 +464,45 @@ class TestResumeLogicBehaviour:
         )
         result_node_names = {n.name for n in result_nodes}
         assert {"node1", "node2", "node3"} == result_node_names
+
+    @pytest.mark.parametrize(
+        "remaining_node_names,expected_result",
+        [
+            (
+                [
+                    "node1_A",
+                    "node1_B",
+                    "node2",
+                    "node3_A",
+                    "node3_B",
+                    "node4_A",
+                    "node4_B",
+                ],
+                {"node1_A", "node1_B"},
+            ),
+            (
+                ["node2", "node3_A", "node3_B", "node4_A", "node4_B"],
+                {"node1_A", "node1_B"},
+            ),
+            (["node3_A", "node3_B", "node4_A", "node4_B"], {"node3_A", "node3_B"}),
+            (["node4_A", "node4_B"], {"node3_A", "node3_B"}),
+            (["node4_A"], {"node3_A"}),
+            (["node3_A", "node4_A"], {"node3_A"}),
+        ],
+    )
+    def test_crossed_pipeline(
+        self,
+        two_branches_crossed_pipeline_variable_inputs,
+        persistent_dataset_catalog,
+        remaining_node_names,
+        expected_result,
+    ):
+        """ """
+        test_pipeline = two_branches_crossed_pipeline_variable_inputs
+
+        remaining_nodes = test_pipeline.only_nodes(*remaining_node_names).nodes
+        result_nodes = find_nodes_to_resume_from(
+            test_pipeline, remaining_nodes, persistent_dataset_catalog
+        )
+        result_node_names = {n.name for n in result_nodes}
+        assert expected_result == result_node_names
