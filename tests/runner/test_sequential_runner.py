@@ -18,8 +18,7 @@ from kedro.pipeline import node
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 from kedro.runner import SequentialRunner
 from kedro.runner.runner import (
-    _find_all_required_nodes,
-    find_initial_node_group,
+    find_all_required_nodes,
     find_nodes_to_resume_from,
 )
 from tests.runner.conftest import exception_fn, identity, sink, source
@@ -360,145 +359,61 @@ class TestMemoryDatasetBehaviour:
         )  # This output is registered in DataCatalog and so should not be in free outputs
 
 
+@pytest.mark.parametrize(
+    "pipeline_name,remaining_node_names,expected_result",
+    [
+        ("pipeline_asymmetric", {"node2", "node3", "node4"}, {"node1", "node2"}),
+        ("pipeline_asymmetric", {"node3", "node4"}, {"node1", "node2"}),
+        ("pipeline_asymmetric", {"node4"}, {"node1", "node2"}),
+        ("pipeline_asymmetric", set(), set()),
+        ("empty_pipeline", set(), set()),
+        ("pipeline_triangular", {"node3"}, {"node1"}),
+        (
+            "two_branches_crossed_pipeline",
+            {
+                "node1_A",
+                "node1_B",
+                "node2",
+                "node3_A",
+                "node3_B",
+                "node4_A",
+                "node4_B",
+            },
+            {"node1_A", "node1_B"},
+        ),
+        (
+            "two_branches_crossed_pipeline",
+            {"node2", "node3_A", "node3_B", "node4_A", "node4_B"},
+            {"node1_A", "node1_B"},
+        ),
+        (
+            "two_branches_crossed_pipeline",
+            ["node3_A", "node3_B", "node4_A", "node4_B"],
+            {"node3_A", "node3_B"},
+        ),
+        (
+            "two_branches_crossed_pipeline",
+            ["node4_A", "node4_B"],
+            {"node3_A", "node3_B"},
+        ),
+        ("two_branches_crossed_pipeline", ["node4_A"], {"node3_A"}),
+        ("two_branches_crossed_pipeline", ["node3_A", "node4_A"], {"node3_A"}),
+    ],
+)
 class TestResumeLogicBehaviour:
-    @pytest.mark.parametrize(
-        "remaining_node_names,expected_result",
-        [
-            (["node3", "node4", "node2"], {"node2", "node1"}),
-            (["node3", "node4"], {"node2", "node1"}),
-            (["node4"], {"node2", "node1"}),
-            ([], set()),
-        ],
-    )
     def test_simple_pipeline(
         self,
-        pipeline_asymmetric,
+        pipeline_name,
         persistent_dataset_catalog,
         remaining_node_names,
         expected_result,
+        request,
     ):
         """
-        ...
+        Test suggestion for simple pipelines with a mix of persistent
+        and memory datasets.
         """
-        remaining_nodes = pipeline_asymmetric.only_nodes(*remaining_node_names).nodes
-        result_nodes = find_nodes_to_resume_from(
-            pipeline_asymmetric, remaining_nodes, persistent_dataset_catalog
-        )
-        result_node_names = {n.name for n in result_nodes}
-        assert expected_result == result_node_names
-
-    @pytest.mark.parametrize(
-        "remaining_node_names",
-        [
-            ["node3", "node4", "node2"],
-            ["node3", "node4"],
-            ["node4"],
-            [],
-        ],
-    )
-    def test_pipeline_with_persistent_datasets(
-        self,
-        pipeline_asymmetric_persistent_datasets,
-        persistent_dataset_catalog,
-        remaining_node_names,
-    ):
-        """
-        ...
-        """
-        remaining_nodes = pipeline_asymmetric_persistent_datasets.only_nodes(
-            *remaining_node_names
-        ).nodes
-        result_nodes = find_nodes_to_resume_from(
-            pipeline_asymmetric_persistent_datasets,
-            remaining_nodes,
-            persistent_dataset_catalog,
-        )
-        result_node_names = {n.name for n in result_nodes}
-        # Superset due to "compression" via initial node group
-        assert set(remaining_node_names).issuperset(result_node_names)
-
-    def test_empty_pipeline(self):
-        """
-        ...
-        """
-        test_pipeline = modular_pipeline([])
-        result_nodes = find_nodes_to_resume_from(test_pipeline, [], DataCatalog())
-        assert result_nodes == set()
-
-    @pytest.mark.parametrize(
-        "remaining_node_names",
-        [
-            ["node3", "node4", "node2"],
-            ["node3", "node4"],
-            ["node4"],
-            [],
-        ],
-    )
-    def test_initial_node_group_always_within(
-        self,
-        pipeline_asymmetric,
-        remaining_node_names,
-    ):
-        """
-        ...
-        """
-        remaining_nodes = pipeline_asymmetric.only_nodes(*remaining_node_names).nodes
-        result_nodes = find_initial_node_group(
-            pipeline_asymmetric,
-            remaining_nodes,
-        )
-        # Superset due to "compression" via initial node group
-        assert set(remaining_nodes).issuperset(result_nodes)
-
-    def test_triangular_pipeline(
-        self,
-        pipeline_triangular,
-        persistent_dataset_catalog,
-    ):
-        """
-        Test that for nodes in result pipeline, no start nodes
-        """
-        remaining_nodes = pipeline_triangular.only_nodes("node3").nodes
-        result_nodes = _find_all_required_nodes(
-            pipeline_triangular, remaining_nodes, persistent_dataset_catalog
-        )
-        result_node_names = {n.name for n in result_nodes}
-        assert {"node1", "node2", "node3"} == result_node_names
-
-    @pytest.mark.parametrize(
-        "remaining_node_names,expected_result",
-        [
-            (
-                [
-                    "node1_A",
-                    "node1_B",
-                    "node2",
-                    "node3_A",
-                    "node3_B",
-                    "node4_A",
-                    "node4_B",
-                ],
-                {"node1_A", "node1_B"},
-            ),
-            (
-                ["node2", "node3_A", "node3_B", "node4_A", "node4_B"],
-                {"node1_A", "node1_B"},
-            ),
-            (["node3_A", "node3_B", "node4_A", "node4_B"], {"node3_A", "node3_B"}),
-            (["node4_A", "node4_B"], {"node3_A", "node3_B"}),
-            (["node4_A"], {"node3_A"}),
-            (["node3_A", "node4_A"], {"node3_A"}),
-        ],
-    )
-    def test_crossed_pipeline(
-        self,
-        two_branches_crossed_pipeline_variable_inputs,
-        persistent_dataset_catalog,
-        remaining_node_names,
-        expected_result,
-    ):
-        """ """
-        test_pipeline = two_branches_crossed_pipeline_variable_inputs
+        test_pipeline = request.getfixturevalue(pipeline_name)
 
         remaining_nodes = test_pipeline.only_nodes(*remaining_node_names).nodes
         result_nodes = find_nodes_to_resume_from(
@@ -506,3 +421,143 @@ class TestResumeLogicBehaviour:
         )
         result_node_names = {n.name for n in result_nodes}
         assert expected_result == result_node_names
+
+    def test_all_datasets_persistent(
+        self,
+        pipeline_name,
+        persistent_dataset_catalog,
+        remaining_node_names,
+        expected_result,
+        request,
+    ):
+        """
+        Test suggestion for pipelines where all datasets are persisted:
+        In that case, exactly the set of remaining nodes should be re-run.
+        """
+        test_pipeline = request.getfixturevalue(pipeline_name)
+
+        catalog = DataCatalog(
+            dict.fromkeys(
+                test_pipeline.datasets(),
+                LambdaDataset(load=lambda: 42, save=lambda data: None),
+            )
+        )
+
+        remaining_nodes = set(test_pipeline.only_nodes(*remaining_node_names).nodes)
+        result_nodes = find_nodes_to_resume_from(
+            test_pipeline,
+            remaining_nodes,
+            catalog,
+        )
+        result_node_names = {n.name for n in result_nodes}
+        final_pipeline_nodes = set(test_pipeline.from_nodes(*result_node_names).nodes)
+        assert final_pipeline_nodes == remaining_nodes
+
+    @pytest.mark.parametrize("extra_input", ["params:p", "dsY"])
+    def test_added_shared_input(
+        self,
+        pipeline_name,
+        persistent_dataset_catalog,
+        remaining_node_names,
+        expected_result,
+        extra_input,
+        request,
+    ):
+        """
+        Test suggestion for pipelines where a single persistent dataset or
+        parameter is shared across all nodes. These do not change and
+        therefore should not affect resume suggestion.
+        """
+        test_pipeline = request.getfixturevalue(pipeline_name)
+
+        # Add parameter shared across all nodes
+        test_pipeline = modular_pipeline(
+            [n._copy(inputs=[*n.inputs, extra_input]) for n in test_pipeline.nodes]
+        )
+
+        remaining_nodes = test_pipeline.only_nodes(*remaining_node_names).nodes
+        result_nodes = find_nodes_to_resume_from(
+            test_pipeline, remaining_nodes, persistent_dataset_catalog
+        )
+        result_node_names = {n.name for n in result_nodes}
+        assert expected_result == result_node_names
+
+    def test_suggestion_consistency(
+        self,
+        pipeline_name,
+        persistent_dataset_catalog,
+        remaining_node_names,
+        expected_result,
+        request,
+    ):
+        """
+        Test that suggestions are internally consistent; pipeline generated
+        from resume nodes should exactly contain set of all required nodes.
+        """
+        test_pipeline = request.getfixturevalue(pipeline_name)
+
+        remaining_nodes = test_pipeline.only_nodes(*remaining_node_names).nodes
+        required_nodes = find_all_required_nodes(
+            test_pipeline, remaining_nodes, persistent_dataset_catalog
+        )
+        resume_nodes = find_nodes_to_resume_from(
+            test_pipeline, remaining_nodes, persistent_dataset_catalog
+        )
+
+        assert set(required_nodes) == set(
+            test_pipeline.from_nodes(*(n.name for n in resume_nodes)).nodes
+        )
+
+    # def test_all_datasets_persistent_all(
+    #     self,
+    #     pipeline_name,
+    #     persistent_dataset_catalog,
+    #     remaining_node_names,
+    #     expected_result,
+    #     request,
+    # ):
+    #     """
+    #     ...
+    #     """
+    #     test_pipeline = request.getfixturevalue(pipeline_name)
+
+    #     catalog = DataCatalog(
+    #         dict.fromkeys(
+    #             test_pipeline.datasets(),
+    #             LambdaDataset(load=lambda: 42, save=lambda data: None),
+    #         )
+    #     )
+
+    #     remaining_nodes = test_pipeline.only_nodes(*remaining_node_names).nodes
+    #     result_nodes = find_all_required_nodes(
+    #         test_pipeline,
+    #         remaining_nodes,
+    #         catalog,
+    #     )
+    #     result_node_names = {n.name for n in result_nodes}
+    #     assert set(remaining_node_names) == result_node_names
+
+    # # TODO: drop?
+    # def test_initial_node_group_always_within(
+    #     self,
+    #     pipeline_name,
+    #     persistent_dataset_catalog,
+    #     remaining_node_names,
+    #     expected_result,
+    #     request,
+    # ):
+    #     """
+    #     ...
+    #     """
+    #     test_pipeline = request.getfixturevalue(pipeline_name)
+
+    #     remaining_nodes = test_pipeline.only_nodes(*remaining_node_names).nodes
+    #     nodes_to_run = find_all_required_nodes(
+    #         test_pipeline, remaining_nodes, persistent_dataset_catalog
+    #     )
+    #     result_nodes = find_initial_node_group(
+    #         test_pipeline,
+    #         nodes_to_run,
+    #     )
+    #     # Superset due to "compression" via initial node group
+    #     assert set(nodes_to_run).issuperset(result_nodes)

@@ -222,10 +222,10 @@ class AbstractRunner(ABC):
             # )
 
 
-def find_nodes_to_resume_from(
+def find_nodes_to_resume_from_(
     pipeline: Pipeline, unfinished_nodes: Collection[Node], catalog: DataCatalog
 ) -> set[Node]:
-    all_nodes_that_need_to_run = _find_all_required_nodes(
+    all_nodes_that_need_to_run = find_all_required_nodes(
         pipeline, unfinished_nodes, catalog
     )
 
@@ -235,7 +235,7 @@ def find_nodes_to_resume_from(
     return persistent_ancestors
 
 
-def _find_all_required_nodes(
+def find_all_required_nodes(
     pipeline: Pipeline, unfinished_nodes: Iterable[Node], catalog: DataCatalog
 ) -> set[Node]:
     """Breadth-first search approach to finding the complete set of
@@ -714,3 +714,7 @@ def _has_persistent_inputs_main(node: Node, catalog: DataCatalog) -> bool:
         if isinstance(catalog._datasets[node_input], MemoryDataset):
             return False
     return True
+
+
+# find_all_required_nodes = find_nodes_to_resume_from_main
+find_nodes_to_resume_from = find_nodes_to_resume_from_
