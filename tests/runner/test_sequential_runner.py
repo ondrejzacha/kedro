@@ -359,6 +359,7 @@ class TestMemoryDatasetBehaviour:
         )  # This output is registered in DataCatalog and so should not be in free outputs
 
 
+# TODO: move to separate script?
 @pytest.mark.parametrize(
     "pipeline_name,remaining_node_names,expected_result",
     [
@@ -416,10 +417,9 @@ class TestResumeLogicBehaviour:
         test_pipeline = request.getfixturevalue(pipeline_name)
 
         remaining_nodes = test_pipeline.only_nodes(*remaining_node_names).nodes
-        result_nodes = find_nodes_to_resume_from(
+        result_node_names = find_nodes_to_resume_from(
             test_pipeline, remaining_nodes, persistent_dataset_catalog
         )
-        result_node_names = {n.name for n in result_nodes}
         assert expected_result == result_node_names
 
     def test_all_datasets_persistent(
@@ -444,12 +444,11 @@ class TestResumeLogicBehaviour:
         )
 
         remaining_nodes = set(test_pipeline.only_nodes(*remaining_node_names).nodes)
-        result_nodes = find_nodes_to_resume_from(
+        result_node_names = find_nodes_to_resume_from(
             test_pipeline,
             remaining_nodes,
             catalog,
         )
-        result_node_names = {n.name for n in result_nodes}
         final_pipeline_nodes = set(test_pipeline.from_nodes(*result_node_names).nodes)
         assert final_pipeline_nodes == remaining_nodes
 
@@ -476,10 +475,9 @@ class TestResumeLogicBehaviour:
         )
 
         remaining_nodes = test_pipeline.only_nodes(*remaining_node_names).nodes
-        result_nodes = find_nodes_to_resume_from(
+        result_node_names = find_nodes_to_resume_from(
             test_pipeline, remaining_nodes, persistent_dataset_catalog
         )
-        result_node_names = {n.name for n in result_nodes}
         assert expected_result == result_node_names
 
     def test_suggestion_consistency(
@@ -500,12 +498,12 @@ class TestResumeLogicBehaviour:
         required_nodes = find_all_required_nodes(
             test_pipeline, remaining_nodes, persistent_dataset_catalog
         )
-        resume_nodes = find_nodes_to_resume_from(
+        resume_node_names = find_nodes_to_resume_from(
             test_pipeline, remaining_nodes, persistent_dataset_catalog
         )
 
         assert set(required_nodes) == set(
-            test_pipeline.from_nodes(*(n.name for n in resume_nodes)).nodes
+            test_pipeline.from_nodes(*resume_node_names).nodes
         )
 
     # def test_all_datasets_persistent_all(

@@ -198,13 +198,13 @@ class AbstractRunner(ABC):
 
         postfix = ""
         if done_nodes:
-            persistent_ancestors = find_nodes_to_resume_from_main(
+            start_node_names = find_nodes_to_resume_from(
                 pipeline=pipeline,
                 unfinished_nodes=remaining_nodes,
                 catalog=catalog,
             )
-            start_node_names = sorted(n.name for n in persistent_ancestors)
-            postfix += f"  --from-nodes \"{','.join(start_node_names)}\""
+            start_nodes_str = ",".join(sorted(start_node_names))
+            postfix += f'  --from-nodes "{start_nodes_str}"'
 
         if not postfix:
             self._logger.warning(
@@ -224,7 +224,7 @@ class AbstractRunner(ABC):
 
 def find_nodes_to_resume_from_(
     pipeline: Pipeline, unfinished_nodes: Collection[Node], catalog: DataCatalog
-) -> set[Node]:
+) -> set[str]:
     all_nodes_that_need_to_run = find_all_required_nodes(
         pipeline, unfinished_nodes, catalog
     )
@@ -232,7 +232,8 @@ def find_nodes_to_resume_from_(
     # Find which of the remaining nodes would need to run first (in topo sort)
     persistent_ancestors = find_initial_node_group(pipeline, all_nodes_that_need_to_run)
 
-    return persistent_ancestors
+    # TODO: return set[name] instead? for easier testing?
+    return {n.name for n in persistent_ancestors}
 
 
 def find_all_required_nodes(
@@ -344,10 +345,10 @@ def find_initial_node_group(pipeline: Pipeline, nodes: Iterable[Node]) -> list[N
     node_names = set(n.name for n in nodes)
     if len(node_names) == 0:
         # TODO: or raise?
-        return set()
+        return []
     sub_pipeline = pipeline.only_nodes(*node_names)
     initial_nodes = sub_pipeline.grouped_nodes[0]
-    return set(initial_nodes)
+    return initial_nodes
 
 
 def run_node(
@@ -568,7 +569,7 @@ def find_nodes_to_resume_from_old(
     persistent_ancestors = _find_persistent_ancestors(
         pipeline, remaining_initial_nodes, catalog
     )
-    return set(persistent_ancestors)
+    return {n.name for n in persistent_ancestors}
 
 
 # XXX
@@ -656,7 +657,7 @@ def find_nodes_to_resume_from_main(pipeline, unfinished_nodes, catalog):
     start_p_persistent_ancestors = _find_persistent_ancestors_main(
         pipeline, start_p.nodes, catalog
     )
-    return start_p_persistent_ancestors
+    return {n.name for n in start_p_persistent_ancestors}
 
 
 # XXX
@@ -718,3 +719,9 @@ def _has_persistent_inputs_main(node: Node, catalog: DataCatalog) -> bool:
 
 # find_all_required_nodes = find_nodes_to_resume_from_main
 find_nodes_to_resume_from = find_nodes_to_resume_from_
+
+# Improvements
+# - if dataset (or param) is persistent & shared, don't keep looking for ancestors
+# - only look for ancestors producing _impersistent_ inputs
+# - minimize number of suggested nodes (= shorter message for the same pipeline)
+# - testable logic, tests cases outside of scenarios for sequential runner
