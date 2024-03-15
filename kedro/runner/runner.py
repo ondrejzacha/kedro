@@ -222,6 +222,21 @@ class AbstractRunner(ABC):
 def find_nodes_to_resume_from(
     pipeline: Pipeline, unfinished_nodes: Collection[Node], catalog: DataCatalog
 ) -> set[str]:
+    """Given a collection of unfinished nodes in a pipeline using
+    a certain catalog, find the node names to pass to pipeline.from_nodes()
+    to cover all unfinished nodes, including any additional nodes
+    that should be re-run if their outputs are not persisted.
+
+    Args:
+        pipeline: the ``Pipeline`` to find starting nodes for.
+        unfinished_nodes: collection of ``Node``s that have not finished yet
+        catalog: the ``DataCatalog`` of the run.
+
+    Returns:
+        Set of node names to pass to pipeline.from_nodes() to continue
+        the run.
+
+    """
     all_nodes_that_need_to_run = find_all_required_nodes(
         pipeline, unfinished_nodes, catalog
     )
