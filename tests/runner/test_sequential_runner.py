@@ -359,7 +359,7 @@ class TestMemoryDatasetBehaviour:
         )  # This output is registered in DataCatalog and so should not be in free outputs
 
 
-# TODO: move to separate script?
+# TODO: move to separate test module?
 @pytest.mark.parametrize(
     "pipeline_name,remaining_node_names,expected_result",
     [
@@ -505,57 +505,3 @@ class TestResumeLogicBehaviour:
         assert set(required_nodes) == set(
             test_pipeline.from_nodes(*resume_node_names).nodes
         )
-
-    # def test_all_datasets_persistent_all(
-    #     self,
-    #     pipeline_name,
-    #     persistent_dataset_catalog,
-    #     remaining_node_names,
-    #     expected_result,
-    #     request,
-    # ):
-    #     """
-    #     ...
-    #     """
-    #     test_pipeline = request.getfixturevalue(pipeline_name)
-
-    #     catalog = DataCatalog(
-    #         dict.fromkeys(
-    #             test_pipeline.datasets(),
-    #             LambdaDataset(load=lambda: 42, save=lambda data: None),
-    #         )
-    #     )
-
-    #     remaining_nodes = test_pipeline.only_nodes(*remaining_node_names).nodes
-    #     result_nodes = find_all_required_nodes(
-    #         test_pipeline,
-    #         remaining_nodes,
-    #         catalog,
-    #     )
-    #     result_node_names = {n.name for n in result_nodes}
-    #     assert set(remaining_node_names) == result_node_names
-
-    # # TODO: drop?
-    # def test_initial_node_group_always_within(
-    #     self,
-    #     pipeline_name,
-    #     persistent_dataset_catalog,
-    #     remaining_node_names,
-    #     expected_result,
-    #     request,
-    # ):
-    #     """
-    #     ...
-    #     """
-    #     test_pipeline = request.getfixturevalue(pipeline_name)
-
-    #     remaining_nodes = test_pipeline.only_nodes(*remaining_node_names).nodes
-    #     nodes_to_run = find_all_required_nodes(
-    #         test_pipeline, remaining_nodes, persistent_dataset_catalog
-    #     )
-    #     result_nodes = find_initial_node_group(
-    #         test_pipeline,
-    #         nodes_to_run,
-    #     )
-    #     # Superset due to "compression" via initial node group
-    #     assert set(nodes_to_run).issuperset(result_nodes)

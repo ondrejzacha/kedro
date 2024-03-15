@@ -217,12 +217,9 @@ class AbstractRunner(ABC):
                 "persisted inputs by adding the following "
                 f"argument to your previous command: {postfix}"
             )
-            # raise PipelineFail(
-            #     "oops", done_nodes=done_nodes, start_nodes=persistent_ancestors
-            # )
 
 
-def find_nodes_to_resume_from_(
+def find_nodes_to_resume_from(
     pipeline: Pipeline, unfinished_nodes: Collection[Node], catalog: DataCatalog
 ) -> set[str]:
     all_nodes_that_need_to_run = find_all_required_nodes(
@@ -232,7 +229,6 @@ def find_nodes_to_resume_from_(
     # Find which of the remaining nodes would need to run first (in topo sort)
     persistent_ancestors = find_initial_node_group(pipeline, all_nodes_that_need_to_run)
 
-    # TODO: return set[name] instead? for easier testing?
     return {n.name for n in persistent_ancestors}
 
 
@@ -556,172 +552,3 @@ def _run_node_async(
                 dataset_name=name, data=data, node=node
             )
     return node
-
-
-# XXX
-def find_nodes_to_resume_from_old(
-    pipeline: Pipeline, unfinished_nodes: Collection[Node], catalog: DataCatalog
-) -> set[Node]:
-    # Find which of the remaining nodes would need to run first (in topo sort)
-    remaining_initial_nodes = find_initial_node_group(pipeline, unfinished_nodes)
-
-    # Find the nearest persistent ancestors of these nodes
-    persistent_ancestors = _find_persistent_ancestors(
-        pipeline, remaining_initial_nodes, catalog
-    )
-    return {n.name for n in persistent_ancestors}
-
-
-# XXX
-def _find_persistent_ancestors(
-    pipeline: Pipeline, children: Iterable[Node], catalog: DataCatalog
-) -> set[Node]:
-    """Breadth-first search approach to finding the complete set of
-    persistent ancestors of an iterable of ``Node``s. Persistent
-    ancestors exclusively have persisted ``Dataset``s or parameters as inputs.
-
-    Args:
-        pipeline: the ``Pipeline`` to find ancestors in.
-        children: the iterable containing ``Node``s to find ancestors of.
-        catalog: the ``DataCatalog`` of the run.
-
-    Returns:
-        A set containing first persistent ancestors of the given
-        ``Node``s.
-
-    """
-    initial_nodes_to_run: set[Node] = set()
-
-    queue, visited = deque(children), set(children)
-    while queue:
-        current_node = queue.popleft()
-        impersistent_inputs = _enumerate_impersistent_inputs(current_node, catalog)
-
-        # If all inputs are persistent, we can run this node as is
-        if not impersistent_inputs:
-            initial_nodes_to_run.add(current_node)
-            continue
-
-        # Otherwise, look for the nodes that produce impersistent inputs
-        for node in _enumerate_nodes_with_outputs(pipeline, impersistent_inputs):
-            if node in visited:
-                continue
-            visited.add(node)
-            queue.append(node)
-
-    return initial_nodes_to_run
-
-
-# XXX
-def has_persistent_inputs(node: Node, catalog: DataCatalog) -> bool:
-    impersistent_inputs = _enumerate_impersistent_inputs(node, catalog)
-    return not impersistent_inputs
-
-
-# XXX
-def has_persistent_outputs(node: Node, catalog: DataCatalog) -> bool:
-    impersistent_outputs = _enumerate_impersistent_outputs(node, catalog)
-    return not impersistent_outputs
-
-
-# XXX
-def _enumerate_impersistent_outputs(node: Node, catalog: DataCatalog) -> set[str]:
-    # We use _data_sets because they pertain parameter name format
-    catalog_datasets = catalog._datasets
-    missing_inputs: set[str] = set()
-    for node_input in node.outputs:
-        # Important difference vs. Kedro approach
-        if node_input.startswith("params:"):
-            continue
-        if isinstance(catalog_datasets[node_input], MemoryDataset):
-            missing_inputs.add(node_input)
-
-    return missing_inputs
-
-
-# XXX
-class PipelineFail(RuntimeError):
-    def __init__(self, msg, done_nodes, start_nodes):
-        super().__init__(msg)
-        self.done_nodes = done_nodes
-        self.start_nodes = start_nodes
-
-
-# XXX
-def find_nodes_to_resume_from_main(pipeline, unfinished_nodes, catalog):
-    node_names = (n.name for n in unfinished_nodes)
-    resume_p = pipeline.only_nodes(*node_names)
-    start_p = resume_p.only_nodes_with_inputs(*resume_p.inputs())
-
-    # find the nearest persistent ancestors of the nodes in start_p
-    start_p_persistent_ancestors = _find_persistent_ancestors_main(
-        pipeline, start_p.nodes, catalog
-    )
-    return {n.name for n in start_p_persistent_ancestors}
-
-
-# XXX
-def _find_persistent_ancestors_main(
-    pipeline: Pipeline, children: Iterable[Node], catalog: DataCatalog
-) -> set[Node]:
-    """Breadth-first search approach to finding the complete set of
-    persistent ancestors of an iterable of ``Node``s. Persistent
-    ancestors exclusively have persisted ``Dataset``s as inputs.
-    Args:
-        pipeline: the ``Pipeline`` to find ancestors in.
-        @@ -242,54 +252,99 @@ def _find_persistent_ancestors(
-        ``Node``s.
-    """
-    ancestor_nodes_to_run = set()
-    queue, visited = deque(children), set(children)
-    while queue:
-        current_node = queue.popleft()
-        if _has_persistent_inputs_main(current_node, catalog):
-            ancestor_nodes_to_run.add(current_node)
-            continue
-        for parent in _enumerate_parents_main(pipeline, current_node):
-            if parent in visited:
-                continue
-            visited.add(parent)
-            queue.append(parent)
-    return ancestor_nodes_to_run
-
-
-# XXX
-def _enumerate_parents_main(pipeline: Pipeline, child: Node) -> list[Node]:
-    """For a given ``Node``, returns a list containing the direct parents
-    of that ``Node`` in the given ``Pipeline``.
-    Args:
-        pipeline: the ``Pipeline`` to search for direct parents in.
-        child: the ``Node`` to find parents of.
-    Returns:
-        A list of all ``Node``s that are direct parents of ``child``.
-    """
-    parent_pipeline = pipeline.only_nodes_with_outputs(*child.inputs)
-    return parent_pipeline.nodes
-
-
-def _has_persistent_inputs_main(node: Node, catalog: DataCatalog) -> bool:
-    """Check if a ``Node`` exclusively has persisted Datasets as inputs.
-    If at least one input is a ``MemoryDataset``, return False.
-    Args:
-        node: the ``Node`` to check the inputs of.
-        catalog: the ``DataCatalog`` of the run.
-    Returns:
-        True if the ``Node`` being checked exclusively has inputs that
-        are not ``MemoryDataset``, else False.
-    """
-    for node_input in node.inputs:
-        if isinstance(catalog._datasets[node_input], MemoryDataset):
-            return False
-    return True
-
-
-# find_all_required_nodes = find_nodes_to_resume_from_main
-find_nodes_to_resume_from = find_nodes_to_resume_from_
-
-# Improvements
-# - if dataset (or param) is persistent & shared, don't keep looking for ancestors
-# - only look for ancestors producing _impersistent_ inputs
-# - minimize number of suggested nodes (= shorter message for the same pipeline)
-# - testable logic, tests cases outside of scenarios for sequential runner
